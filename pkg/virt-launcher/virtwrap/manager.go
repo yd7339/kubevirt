@@ -843,6 +843,8 @@ func (l *LibvirtDomainManager) SyncVMI(vmi *v1.VirtualMachineInstance, allowEmul
 		return nil, err
 	}
 
+	logger.Info("Domain conversion succesed !")
+
 	// Set defaults which are not coming from the cluster
 	api.NewDefaulter(c.Architecture).SetObjectDefaults_Domain(domain)
 
@@ -860,6 +862,7 @@ func (l *LibvirtDomainManager) SyncVMI(vmi *v1.VirtualMachineInstance, allowEmul
 				return nil, err
 			}
 			logger.Info("Domain defined.")
+			logger.Infof("Domain name is : %s", domain.Spec.Name)
 		} else {
 			logger.Reason(err).Error(failedGetDomain)
 			return nil, err
