@@ -26,8 +26,11 @@ package converter
 */
 
 import (
+	"bufio"
+	"crypto/rand"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -843,6 +846,112 @@ func Convert_v1_EmptyDiskSource_To_api_Disk(volumeName string, _ *v1.EmptyDiskSo
 	disk.Driver.ErrorPolicy = "stop"
 
 	return nil
+}
+
+func Exists(path string) bool {
+	_, err := os.Stat(path)
+	if err != nil {
+		if os.IsExist(err) {
+			return true
+		}
+		return false
+	}
+	return true
+}
+func getUuid() string {
+	b := make([]byte, 16)
+	io.ReadFull(rand.Reader, b)
+	b[6] = (b[6] & 0x0f) | 0x40
+	b[8] = (b[8] & 0x3f) | 0x80
+	return fmt.Sprintf("%x-%x-%x-%x-%x", b[0:4], b[4:6], b[6:8], b[8:10], b[10:])
+}
+
+func EditEntrypoint(path string, pre_content string) error {
+	f, err := os.OpenFile(path, os.O_RDWR, 0666)
+	if err != nil {
+		return err
+	} else {
+		pos := int64(0)
+		_, err = f.WriteAt([]byte(pre_content), pos)
+		if err != nil {
+			return err
+		}
+		defer f.Close()
+	}
+	return nil
+}
+
+func getMessage(path string) (string, string) {
+	f, err := os.Open(path)
+	if err != nil {
+		return "nil", "nil"
+	}
+	defer f.Close()
+	Split := func(r rune) bool {
+		return r == ';' || r == ':'
+	}
+	var results []string
+	scanner := bufio.NewScanner(f)
+	for scanner.Scan() {
+		if strings.Contains(scanner.Text(), "RESULT") {
+			results = strings.FieldsFunc(scanner.Text(), Split)
+		}
+	}
+	if len(results) < 10 {
+		return "", ""
+	}
+	return results[1], results[9]
+}
+
+func getQueueIndex(path string) int {
+	f, err := os.Open(path)
+	if err != nil {
+		return 0
+	}
+	defer f.Close()
+	scanner := bufio.NewScanner(f)
+	for scanner.Scan() {
+		if strings.Contains(scanner.Text(), "WorkItem") {
+			results := strings.Split(scanner.Text(), "Queue")
+			index, _ := strconv.Atoi(results[1])
+			return index
+		}
+	}
+	return 1
+}
+
+var jobNameMap = map[string]bool{}
+var Queue_index []int
+
+func DestroyVhostBlkDisk(vmi *v1.VirtualMachineInstance) {
+
+	logger := log.DefaultLogger()
+	logger.Infof("Start to destroy the created vhost block devices...")
+	fileDir := "/var/tmp/"
+	fileName := fileDir + "vhost.message"
+	BridgePath := `"` + fileDir + `"`
+	WorkItemStatus := "Delete"
+	var (
+		file *os.File
+		err  error
+	)
+	// Scan the disk buffer to delete all spdk-vhsot user block device.
+	for _, vhostDisk := range Queue_index {
+		file, err = os.OpenFile(fileName, os.O_APPEND|os.O_WRONLY|os.O_CREATE, 0666)
+		if err != nil {
+			//return fmt.Errorf("OpenFile error")
+			logger.Error("OpenFile error")
+		}
+		defer file.Close()
+		entrypoint_content := "BridgePath=" + BridgePath + "\n" + "WorkItem=Queue" + strconv.Itoa(vhostDisk) + "\nWorkItemStatus=" + WorkItemStatus + "\n---\n"
+		if err = EditEntrypoint(fileName, entrypoint_content); err != nil {
+			logger.Error("edit file error while destroying")
+		} else {
+			time.Sleep(time.Duration(3) * time.Second)
+		}
+		//Clean up the disk.
+	}
+
 }
 
 func Convert_v1_SpdkVhostBlkDiskSource_To_api_Disk(volumeName string, diskSource *v1.SpdkVhostBlkDiskSource, disk *api.Disk) error {
