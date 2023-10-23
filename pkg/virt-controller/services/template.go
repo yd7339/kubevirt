@@ -69,6 +69,8 @@ const (
 const KvmDevice = "devices.kubevirt.io/kvm"
 const TunDevice = "devices.kubevirt.io/tun"
 const VhostNetDevice = "devices.kubevirt.io/vhost-net"
+const SpdkVhostuserSocketDir = "/var/tmp/"
+const SharedHugepageDir = "/dev/hugepages"
 const SevDevice = "devices.kubevirt.io/sev"
 
 const debugLogs = "debugLogs"
@@ -403,6 +405,37 @@ func (t *templateService) RenderLaunchManifestNoVm(vmi *v1.VirtualMachineInstanc
 	return t.renderLaunchManifest(vmi, nil, true)
 }
 
+func addSpdkVhostuserVolumes(volumeMounts *[]k8sv1.VolumeMount, volumes *[]k8sv1.Volume) {
+	// "spdk-vhost-shared-dir" volume name will be used by userspace cni to place the spdk-vhost-user socket file`
+	*volumeMounts = append(*volumeMounts, k8sv1.VolumeMount{
+		Name:      "spdk-vhost-shared-dir",
+		MountPath: SpdkVhostuserSocketDir,
+	})
+
+	*volumes = append(*volumes, k8sv1.Volume{
+		Name: "spdk-vhost-shared-dir",
+		VolumeSource: k8sv1.VolumeSource{
+			HostPath: &k8sv1.HostPathVolumeSource{
+				Path: SpdkVhostuserSocketDir,
+			},
+		},
+	})
+
+	// Libvirt uses ovs-vsctl commands to get interface stats
+	*volumeMounts = append(*volumeMounts, k8sv1.VolumeMount{
+		Name:      "shared-hugepage",
+		MountPath: SharedHugepageDir,
+	})
+	*volumes = append(*volumes, k8sv1.Volume{
+		Name: "shared-hugepage",
+		VolumeSource: k8sv1.VolumeSource{
+			HostPath: &k8sv1.HostPathVolumeSource{
+				Path: SharedHugepageDir,
+			},
+		},
+	})
+}
+
 func (t *templateService) RenderMigrationManifest(vmi *v1.VirtualMachineInstance, pod *k8sv1.Pod) (*k8sv1.Pod, error) {
 	reproducibleImageIDs, err := containerdisk.ExtractImageIDsFromSourcePod(vmi, pod)
 	if err != nil {
@@ -554,6 +587,8 @@ func (t *templateService) renderLaunchManifest(vmi *v1.VirtualMachineInstance, i
 			EmptyDir: &k8sv1.EmptyDirVolumeSource{},
 		},
 	})
+
+	addSpdkVhostuserVolumes(&volumeMounts, &volumes)
 
 	serviceAccountName := ""
 
@@ -1044,7 +1079,7 @@ func (t *templateService) renderLaunchManifest(vmi *v1.VirtualMachineInstance, i
 			"echo", "bound PVCs"}
 	} else {
 		command = []string{"/usr/bin/virt-launcher",
-			"--qemu-timeout", generateQemuTimeoutWithJitter(t.launcherQemuTimeout),
+			"--qemu-timeout", "1800s", //generateQemuTimeoutWithJitter(t.launcherQemuTimeout),
 			"--name", domain,
 			"--uid", string(vmi.UID),
 			"--namespace", namespace,
