@@ -521,6 +521,13 @@ func main() {
 	close(stopChan)
 	<-cmdServerDone
 
+	//TODO: Need to notify to destruct the spdk-vhost-blk controller in spdk-vhost daemon.
+	log.Log.Info("Notify the controller to release spdk-vhost-blk.")
+
+	virtlauncherconverter.DestroyVhostBlkDisk(vmi)
+
+	time.Sleep(10 * time.Second)
+
 	log.Log.Info("Exiting...")
 }
 
