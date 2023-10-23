@@ -171,3 +171,25 @@ func AlignImageSizeTo1MiB(size int64, logger *log.FilteredLogger) int64 {
 		return newSize
 	}
 }
+
+// Check if a VMI spec requests vhostuser interface
+func IsVhostuserVmiSpec(spec *v1.VirtualMachineInstanceSpec) bool {
+	// for _, iface := range spec.Domain.Devices.Interfaces {
+	// 	if iface.Vhostuser != nil {
+	// 		return true
+	// 	}
+	// }
+	// return false
+
+	//For spdk vhost support, re-visit
+	spdkVhostTag := "/var/tmp/vhost.tag" //If the tag is exist, then support the spdk vhost.
+	// logger := log.DefaultLogger()
+	if _, err := os.Stat(spdkVhostTag); os.IsNotExist(err) {
+		// logger.Infof("SPDK vhost is not enabeled, please create the tag[%s]to support SPDK vhost in kubevirt.", spdkVhostTag)
+		return false
+	} else if err == nil {
+		//logger.Infof("SPDK vhost tag[%s] is exist, support SPDK vhost in kubevirt.", spdkVhostTag)
+		return true
+	}
+	return false
+}
