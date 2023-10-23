@@ -458,6 +458,8 @@ func configureQemuConf(qemuFilename string) (err error) {
 	_, err = os.Stat("/dev/hugepages")
 	if err == nil {
 		_, err = qemuConf.WriteString("hugetlbfs_mount = \"/dev/hugepages\"\n")
+		_, err = qemuConf.WriteString("user = \"root\"\n")
+		_, err = qemuConf.WriteString("group = \"root\"\n")
 	} else if !os.IsNotExist(err) {
 		return err
 	}
