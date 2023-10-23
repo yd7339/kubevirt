@@ -845,7 +845,7 @@ func Convert_v1_EmptyDiskSource_To_api_Disk(volumeName string, _ *v1.EmptyDiskSo
 	return nil
 }
 
-func Convert_v1_SpdkVhostBlkDiskSource_To_api_Disk(volumeName string, _ *v1.SpdkVhostBlkDiskSource, disk *api.Disk) error {
+func Convert_v1_SpdkVhostBlkDiskSource_To_api_Disk(volumeName string, diskSource *v1.SpdkVhostBlkDiskSource, disk *api.Disk) error {
 	if disk.Type == "lun" {
 		return fmt.Errorf(deviceTypeNotCompatibleFmt, disk.Alias.GetName())
 	}
