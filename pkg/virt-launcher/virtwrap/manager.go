@@ -607,6 +607,8 @@ func (l *LibvirtDomainManager) preStartHook(vmi *v1.VirtualMachineInstance, doma
 		return domain, fmt.Errorf("failed to craete downwardMetric disk: %v", err)
 	}
 
+	// TODO: create spdkVhostBlk disk if exists..
+
 	// set drivers cache mode
 	for i := range domain.Spec.Devices.Disks {
 		err := converter.SetDriverCacheMode(&domain.Spec.Devices.Disks[i], l.directIOChecker)

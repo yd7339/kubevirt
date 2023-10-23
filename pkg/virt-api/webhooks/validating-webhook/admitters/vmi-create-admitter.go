@@ -1889,6 +1889,9 @@ func validateVolumes(field *k8sfield.Path, volumes []v1.Volume, config *virtconf
 		if volume.HostDisk != nil {
 			volumeSourceSetCount++
 		}
+		if volume.SpdkVhostBlkDisk != nil {
+			volumeSourceSetCount++
+		}
 		if volume.DataVolume != nil {
 			if !config.HasDataVolumeAPI() {
 				causes = append(causes, metav1.StatusCause{

@@ -13125,6 +13125,19 @@
      }
     }
    },
+   "v1.SpdkVhostBlkDiskSource": {
+    "description": "SpdkVhostBlkDisk represents a temporary disk which shares the vmis lifecycle.",
+    "type": "object",
+    "required": [
+     "capacity"
+    ],
+    "properties": {
+     "capacity": {
+      "description": "Capacity of the sparse disk.",
+      "$ref": "#/definitions/k8s.io.apimachinery.pkg.api.resource.Quantity"
+     }
+    }
+   },
    "v1.EphemeralVolumeSource": {
     "type": "object",
     "properties": {
@@ -16272,6 +16285,10 @@
      "emptyDisk": {
       "description": "EmptyDisk represents a temporary disk which shares the vmis lifecycle. More info: https://kubevirt.gitbooks.io/user-guide/disks-and-volumes.html",
       "$ref": "#/definitions/v1.EmptyDiskSource"
+     },
+     "spdkVhostBlkDisk": {
+      "description": "SpdkVhostBlkDisk represents a temporary disk which shares the vmis lifecycle. More info: https://kubevirt.gitbooks.io/user-guide/disks-and-volumes.html",
+      "$ref": "#/definitions/v1.SpdkVhostBlkDiskSource"
      },
      "ephemeral": {
       "description": "Ephemeral is a special volume source that \"wraps\" specified source and provides copy-on-write image on top of it.",

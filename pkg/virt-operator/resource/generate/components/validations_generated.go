@@ -6316,6 +6316,20 @@ var CRDsValidation map[string]string = map[string]string{
                             - claimName
                             type: object
                         type: object
+                      spdkVhostBlkDisk:
+                        description: 'SpdkVhostBlkDisk represents a temporary disk which
+                          shares the vmis lifecycle. More info: https://kubevirt.gitbooks.io/user-guide/disks-and-volumes.html'
+                        properties:
+                          capacity:
+                            anyOf:
+                            - type: integer
+                            - type: string
+                            description: Capacity of the sparse disk.
+                            pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                            x-kubernetes-int-or-string: true
+                        required:
+                        - capacity
+                        type: object                        
                       hostDisk:
                         description: HostDisk represents a disk created on the cluster
                           level
@@ -9441,6 +9455,20 @@ var CRDsValidation map[string]string = map[string]string{
                 type: object
               emptyDisk:
                 description: 'EmptyDisk represents a temporary disk which shares the
+                  vmis lifecycle. More info: https://kubevirt.gitbooks.io/user-guide/disks-and-volumes.html'
+                properties:
+                  capacity:
+                    anyOf:
+                    - type: integer
+                    - type: string
+                    description: Capacity of the sparse disk.
+                    pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                    x-kubernetes-int-or-string: true
+                required:
+                - capacity
+                type: object
+              spdkVhostBlkDisk:
+                description: 'SpdkVhostBlkDisk represents a temporary disk which shares the
                   vmis lifecycle. More info: https://kubevirt.gitbooks.io/user-guide/disks-and-volumes.html'
                 properties:
                   capacity:
@@ -13696,6 +13724,20 @@ var CRDsValidation map[string]string = map[string]string{
                         required:
                         - capacity
                         type: object
+                      spdkVhostBlkDisk:
+                        description: 'SpdkVhostBlkDisk represents a temporary disk which
+                          shares the vmis lifecycle. More info: https://kubevirt.gitbooks.io/user-guide/disks-and-volumes.html'
+                        properties:
+                          capacity:
+                            anyOf:
+                            - type: integer
+                            - type: string
+                            description: Capacity of the sparse disk.
+                            pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                            x-kubernetes-int-or-string: true
+                        required:
+                        - capacity
+                        type: object
                       ephemeral:
                         description: Ephemeral is a special volume source that "wraps"
                           specified source and provides copy-on-write image on top
@@ -17357,6 +17399,20 @@ var CRDsValidation map[string]string = map[string]string{
                                 type: object
                               emptyDisk:
                                 description: 'EmptyDisk represents a temporary disk
+                                  which shares the vmis lifecycle. More info: https://kubevirt.gitbooks.io/user-guide/disks-and-volumes.html'
+                                properties:
+                                  capacity:
+                                    anyOf:
+                                    - type: integer
+                                    - type: string
+                                    description: Capacity of the sparse disk.
+                                    pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                                    x-kubernetes-int-or-string: true
+                                required:
+                                - capacity
+                                type: object
+                              spdkVhostBlkDisk:
+                                description: 'SpdkVhostBlkDisk represents a temporary disk
                                   which shares the vmis lifecycle. More info: https://kubevirt.gitbooks.io/user-guide/disks-and-volumes.html'
                                 properties:
                                   capacity:
@@ -21389,6 +21445,21 @@ var CRDsValidation map[string]string = map[string]string{
                                     required:
                                     - capacity
                                     type: object
+                                  spdkVhostBlkDisk:
+                                    description: 'SpdkVhostBlkDisk represents a temporary
+                                      disk which shares the vmis lifecycle. More info:
+                                      https://kubevirt.gitbooks.io/user-guide/disks-and-volumes.html'
+                                    properties:
+                                      capacity:
+                                        anyOf:
+                                        - type: integer
+                                        - type: string
+                                        description: Capacity of the sparse disk.
+                                        pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                                        x-kubernetes-int-or-string: true
+                                    required:
+                                    - capacity
+                                    type: object                                   
                                   ephemeral:
                                     description: Ephemeral is a special volume source
                                       that "wraps" specified source and provides copy-on-write

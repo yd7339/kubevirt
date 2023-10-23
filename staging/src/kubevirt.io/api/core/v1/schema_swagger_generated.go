@@ -397,6 +397,7 @@ func (VolumeSource) SwaggerDoc() map[string]string {
 		"secret":                "SecretVolumeSource represents a reference to a secret data in the same namespace.\nMore info: https://kubernetes.io/docs/concepts/configuration/secret/\n+optional",
 		"downwardAPI":           "DownwardAPI represents downward API about the pod that should populate this volume\n+optional",
 		"serviceAccount":        "ServiceAccountVolumeSource represents a reference to a service account.\nThere can only be one volume of this type!\nMore info: https://kubernetes.io/docs/tasks/configure-pod-container/configure-service-account/\n+optional",
+		"spdkVhostBlkDisk":      "SpdkVhostBlkDisk represents a temporary disk which shares the vmis lifecycle.\nMore info: https://kubevirt.gitbooks.io/user-guide/disks-and-volumes.html\n+optional",
 		"downwardMetrics":       "DownwardMetrics adds a very small disk to VMIs which contains a limited view of host and guest\nmetrics. The disk content is compatible with vhostmd (https://github.com/vhostmd/vhostmd) and vm-dump-metrics.",
 	}
 }
@@ -443,6 +444,13 @@ func (ContainerDiskSource) SwaggerDoc() map[string]string {
 		"imagePullSecret": "ImagePullSecret is the name of the Docker registry secret required to pull the image. The secret must already exist.",
 		"path":            "Path defines the path to disk file in the container",
 		"imagePullPolicy": "Image pull policy.\nOne of Always, Never, IfNotPresent.\nDefaults to Always if :latest tag is specified, or IfNotPresent otherwise.\nCannot be updated.\nMore info: https://kubernetes.io/docs/concepts/containers/images#updating-images\n+optional",
+	}
+}
+
+func (SpdkVhostBlkDiskSource) SwaggerDoc() map[string]string {
+	return map[string]string{
+		"":         "SpdkVhostBlkDisk represents a temporary disk which shares the vmis lifecycle.",
+		"capacity": "Capacity of the sparse disk.",
 	}
 }
 
