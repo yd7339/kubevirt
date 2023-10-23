@@ -720,6 +720,10 @@ type VolumeSource struct {
 	// DownwardMetrics adds a very small disk to VMIs which contains a limited view of host and guest
 	// metrics. The disk content is compatible with vhostmd (https://github.com/vhostmd/vhostmd) and vm-dump-metrics.
 	DownwardMetrics *DownwardMetricsVolumeSource `json:"downwardMetrics,omitempty"`
+	// SpdkVhostBlkDisk represents a temporary disk which shares the vmis lifecycle.
+	// More info: https://kubevirt.gitbooks.io/user-guide/disks-and-volumes.html
+	// +optional
+	SpdkVhostBlkDisk *SpdkVhostBlkDiskSource `json:"spdkVhostBlkDisk,omitempty"`
 }
 
 // HotplugVolumeSource Represents the source of a volume to mount which are capable
@@ -765,6 +769,12 @@ type EphemeralVolumeSource struct {
 
 // EmptyDisk represents a temporary disk which shares the vmis lifecycle.
 type EmptyDiskSource struct {
+	// Capacity of the sparse disk.
+	Capacity resource.Quantity `json:"capacity"`
+}
+
+// SpdkVhostBlkDiskSource represents a temporary disk which shares the vmis lifecycle.
+type SpdkVhostBlkDiskSource struct {
 	// Capacity of the sparse disk.
 	Capacity resource.Quantity `json:"capacity"`
 }

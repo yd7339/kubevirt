@@ -432,6 +432,7 @@ func GetOpenAPIDefinitions(ref common.ReferenceCallback) map[string]common.OpenA
 		"kubevirt.io/client-go/apis/core/v1.EFI":                                                     schema_client_go_apis_core_v1_EFI(ref),
 		"kubevirt.io/client-go/apis/core/v1.EmptyDiskSource":                                         schema_client_go_apis_core_v1_EmptyDiskSource(ref),
 		"kubevirt.io/client-go/apis/core/v1.EphemeralVolumeSource":                                   schema_client_go_apis_core_v1_EphemeralVolumeSource(ref),
+		"kubevirt.io/client-go/apis/core/v1.SpdkVhostBlkDiskSource":                                  schema_client_go_apis_core_v1_SpdkVhostBlkDiskSource(ref),
 		"kubevirt.io/client-go/apis/core/v1.FeatureAPIC":                                             schema_client_go_apis_core_v1_FeatureAPIC(ref),
 		"kubevirt.io/client-go/apis/core/v1.FeatureHyperv":                                           schema_client_go_apis_core_v1_FeatureHyperv(ref),
 		"kubevirt.io/client-go/apis/core/v1.FeatureKVM":                                              schema_client_go_apis_core_v1_FeatureKVM(ref),
@@ -20385,6 +20386,28 @@ func schema_client_go_apis_core_v1_EmptyDiskSource(ref common.ReferenceCallback)
 	}
 }
 
+func schema_client_go_apis_core_v1_SpdkVhostBlkDiskSource(ref common.ReferenceCallback) common.OpenAPIDefinition {
+	return common.OpenAPIDefinition{
+		Schema: spec.Schema{
+			SchemaProps: spec.SchemaProps{
+				Description: "SpdkVhostBlkDisk represents a temporary disk which shares the vmis lifecycle.",
+				Type:        []string{"object"},
+				Properties: map[string]spec.Schema{
+					"capacity": {
+						SchemaProps: spec.SchemaProps{
+							Description: "Capacity of the sparse disk.",
+							Ref:         ref("k8s.io/apimachinery/pkg/api/resource.Quantity"),
+						},
+					},
+				},
+				Required: []string{"capacity"},
+			},
+		},
+		Dependencies: []string{
+			"k8s.io/apimachinery/pkg/api/resource.Quantity"},
+	}
+}
+
 func schema_client_go_apis_core_v1_EphemeralVolumeSource(ref common.ReferenceCallback) common.OpenAPIDefinition {
 	return common.OpenAPIDefinition{
 		Schema: spec.Schema{
@@ -26049,6 +26072,12 @@ func schema_client_go_apis_core_v1_Volume(ref common.ReferenceCallback) common.O
 							Ref:         ref("kubevirt.io/client-go/apis/core/v1.DataVolumeSource"),
 						},
 					},
+					"spdkVhostBlkDisk": {
+						SchemaProps: spec.SchemaProps{
+							Description: "SpdkVhostBlkDisk represents a temporary disk which shares the vmis lifecycle. More info: https://kubevirt.gitbooks.io/user-guide/disks-and-volumes.html",
+							Ref:         ref("kubevirt.io/client-go/apis/core/v1.SpdkVhostBlkDiskSource"),
+						},
+					},
 					"configMap": {
 						SchemaProps: spec.SchemaProps{
 							Description: "ConfigMapSource represents a reference to a ConfigMap in the same namespace. More info: https://kubernetes.io/docs/tasks/configure-pod-container/configure-pod-configmap/",
@@ -26084,7 +26113,7 @@ func schema_client_go_apis_core_v1_Volume(ref common.ReferenceCallback) common.O
 			},
 		},
 		Dependencies: []string{
-			"kubevirt.io/client-go/apis/core/v1.CloudInitConfigDriveSource", "kubevirt.io/client-go/apis/core/v1.CloudInitNoCloudSource", "kubevirt.io/client-go/apis/core/v1.ConfigMapVolumeSource", "kubevirt.io/client-go/apis/core/v1.ContainerDiskSource", "kubevirt.io/client-go/apis/core/v1.DataVolumeSource", "kubevirt.io/client-go/apis/core/v1.DownwardAPIVolumeSource", "kubevirt.io/client-go/apis/core/v1.DownwardMetricsVolumeSource", "kubevirt.io/client-go/apis/core/v1.EmptyDiskSource", "kubevirt.io/client-go/apis/core/v1.EphemeralVolumeSource", "kubevirt.io/client-go/apis/core/v1.HostDisk", "kubevirt.io/client-go/apis/core/v1.PersistentVolumeClaimVolumeSource", "kubevirt.io/client-go/apis/core/v1.SecretVolumeSource", "kubevirt.io/client-go/apis/core/v1.ServiceAccountVolumeSource", "kubevirt.io/client-go/apis/core/v1.SysprepSource"},
+			"kubevirt.io/client-go/apis/core/v1.CloudInitConfigDriveSource", "kubevirt.io/client-go/apis/core/v1.CloudInitNoCloudSource", "kubevirt.io/client-go/apis/core/v1.ConfigMapVolumeSource", "kubevirt.io/client-go/apis/core/v1.ContainerDiskSource", "kubevirt.io/client-go/apis/core/v1.DataVolumeSource", "kubevirt.io/client-go/apis/core/v1.DownwardAPIVolumeSource", "kubevirt.io/client-go/apis/core/v1.DownwardMetricsVolumeSource", "kubevirt.io/client-go/apis/core/v1.EmptyDiskSource", "kubevirt.io/client-go/apis/core/v1.SpdkVhostBlkDiskSource", "kubevirt.io/client-go/apis/core/v1.EphemeralVolumeSource", "kubevirt.io/client-go/apis/core/v1.HostDisk", "kubevirt.io/client-go/apis/core/v1.PersistentVolumeClaimVolumeSource", "kubevirt.io/client-go/apis/core/v1.SecretVolumeSource", "kubevirt.io/client-go/apis/core/v1.ServiceAccountVolumeSource", "kubevirt.io/client-go/apis/core/v1.SysprepSource"},
 	}
 }
 
@@ -26183,6 +26212,12 @@ func schema_client_go_apis_core_v1_VolumeSource(ref common.ReferenceCallback) co
 							Ref:         ref("kubevirt.io/client-go/apis/core/v1.DataVolumeSource"),
 						},
 					},
+					"spdkVhostBlkDisk": {
+						SchemaProps: spec.SchemaProps{
+							Description: "SpdkVhostBlkDisk represents a temporary disk which shares the vmis lifecycle. More info: https://kubevirt.gitbooks.io/user-guide/disks-and-volumes.html",
+							Ref:         ref("kubevirt.io/client-go/apis/core/v1.SpdkVhostBlkDiskSource"),
+						},
+					},
 					"configMap": {
 						SchemaProps: spec.SchemaProps{
 							Description: "ConfigMapSource represents a reference to a ConfigMap in the same namespace. More info: https://kubernetes.io/docs/tasks/configure-pod-container/configure-pod-configmap/",
@@ -26217,7 +26252,7 @@ func schema_client_go_apis_core_v1_VolumeSource(ref common.ReferenceCallback) co
 			},
 		},
 		Dependencies: []string{
-			"kubevirt.io/client-go/apis/core/v1.CloudInitConfigDriveSource", "kubevirt.io/client-go/apis/core/v1.CloudInitNoCloudSource", "kubevirt.io/client-go/apis/core/v1.ConfigMapVolumeSource", "kubevirt.io/client-go/apis/core/v1.ContainerDiskSource", "kubevirt.io/client-go/apis/core/v1.DataVolumeSource", "kubevirt.io/client-go/apis/core/v1.DownwardAPIVolumeSource", "kubevirt.io/client-go/apis/core/v1.DownwardMetricsVolumeSource", "kubevirt.io/client-go/apis/core/v1.EmptyDiskSource", "kubevirt.io/client-go/apis/core/v1.EphemeralVolumeSource", "kubevirt.io/client-go/apis/core/v1.HostDisk", "kubevirt.io/client-go/apis/core/v1.PersistentVolumeClaimVolumeSource", "kubevirt.io/client-go/apis/core/v1.SecretVolumeSource", "kubevirt.io/client-go/apis/core/v1.ServiceAccountVolumeSource", "kubevirt.io/client-go/apis/core/v1.SysprepSource"},
+			"kubevirt.io/client-go/apis/core/v1.CloudInitConfigDriveSource", "kubevirt.io/client-go/apis/core/v1.CloudInitNoCloudSource", "kubevirt.io/client-go/apis/core/v1.ConfigMapVolumeSource", "kubevirt.io/client-go/apis/core/v1.ContainerDiskSource", "kubevirt.io/client-go/apis/core/v1.DataVolumeSource", "kubevirt.io/client-go/apis/core/v1.DownwardAPIVolumeSource", "kubevirt.io/client-go/apis/core/v1.DownwardMetricsVolumeSource", "kubevirt.io/client-go/apis/core/v1.EmptyDiskSource", "kubevirt.io/client-go/apis/core/v1.SpdkVhostBlkDiskSource", "kubevirt.io/client-go/apis/core/v1.EphemeralVolumeSource", "kubevirt.io/client-go/apis/core/v1.HostDisk", "kubevirt.io/client-go/apis/core/v1.PersistentVolumeClaimVolumeSource", "kubevirt.io/client-go/apis/core/v1.SecretVolumeSource", "kubevirt.io/client-go/apis/core/v1.ServiceAccountVolumeSource", "kubevirt.io/client-go/apis/core/v1.SysprepSource"},
 	}
 }
 

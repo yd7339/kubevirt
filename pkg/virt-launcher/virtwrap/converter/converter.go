@@ -26,22 +26,26 @@ package converter
 */
 
 import (
+	"bufio"
+	"crypto/rand"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"syscall"
+	"time"
 
 	"golang.org/x/sys/unix"
 
+	"kubevirt.io/kubevirt/pkg/emptydisk"
 	"kubevirt.io/kubevirt/pkg/virt-launcher/virtwrap/converter/vcpu"
 
-	"kubevirt.io/kubevirt/pkg/virt-controller/watch/topology"
-
 	"kubevirt.io/kubevirt/pkg/virt-controller/services"
+	"kubevirt.io/kubevirt/pkg/virt-controller/watch/topology"
 
 	k8sv1 "k8s.io/api/core/v1"
 
@@ -55,7 +59,6 @@ import (
 	"kubevirt.io/kubevirt/pkg/config"
 
 	containerdisk "kubevirt.io/kubevirt/pkg/container-disk"
-	"kubevirt.io/kubevirt/pkg/emptydisk"
 	ephemeraldisk "kubevirt.io/kubevirt/pkg/ephemeral-disk"
 	cmdv1 "kubevirt.io/kubevirt/pkg/handler-launcher-com/cmd/v1"
 	hostdisk "kubevirt.io/kubevirt/pkg/host-disk"
@@ -122,6 +125,9 @@ type ConverterContext struct {
 	ExpandDisksEnabled    bool
 	UseLaunchSecurity     bool
 }
+
+// for record the spdkvhost block disk count.
+var spdkVhostBlkVolIndices = map[string]int{}
 
 func contains(volumes []string, name string) bool {
 	for _, v := range volumes {
@@ -405,6 +411,10 @@ func SetDriverCacheMode(disk *api.Disk, directIOChecker DirectIOChecker) error {
 	mode := v1.DriverCache(disk.Driver.Cache)
 	isBlockDev := false
 
+	if disk.Type == "vhostuser" {
+		return nil
+	}
+
 	if disk.Source.File != "" {
 		path = disk.Source.File
 	} else if disk.Source.Dev != "" {
@@ -608,6 +618,9 @@ func Convert_v1_Volume_To_api_Disk(source *v1.Volume, disk *api.Disk, c *Convert
 	}
 	if source.EmptyDisk != nil {
 		return Convert_v1_EmptyDiskSource_To_api_Disk(source.Name, source.EmptyDisk, disk)
+	}
+	if source.SpdkVhostBlkDisk != nil {
+		return Convert_v1_SpdkVhostBlkDiskSource_To_api_Disk(source.Name, source.SpdkVhostBlkDisk, disk)
 	}
 	if source.ConfigMap != nil {
 		return Convert_v1_Config_To_api_Disk(source.Name, disk, config.ConfigMap)
@@ -833,6 +846,278 @@ func Convert_v1_EmptyDiskSource_To_api_Disk(volumeName string, _ *v1.EmptyDiskSo
 	disk.Driver.ErrorPolicy = "stop"
 
 	return nil
+}
+
+func Exists(path string) bool {
+	_, err := os.Stat(path)
+	if err != nil {
+		if os.IsExist(err) {
+			return true
+		}
+		return false
+	}
+	return true
+}
+func getUuid() string {
+	b := make([]byte, 16)
+	io.ReadFull(rand.Reader, b)
+	b[6] = (b[6] & 0x0f) | 0x40
+	b[8] = (b[8] & 0x3f) | 0x80
+	return fmt.Sprintf("%x-%x-%x-%x-%x", b[0:4], b[4:6], b[6:8], b[8:10], b[10:])
+}
+
+func EditEntrypoint(path string, pre_content string) error {
+	f, err := os.OpenFile(path, os.O_RDWR, 0666)
+	if err != nil {
+		return err
+	} else {
+		pos := int64(0)
+		_, err = f.WriteAt([]byte(pre_content), pos)
+		if err != nil {
+			return err
+		}
+		defer f.Close()
+	}
+	return nil
+}
+
+func getMessage(path string) (string, string) {
+	f, err := os.Open(path)
+	if err != nil {
+		return "nil", "nil"
+	}
+	defer f.Close()
+	Split := func(r rune) bool {
+		return r == ';' || r == ':'
+	}
+	var results []string
+	scanner := bufio.NewScanner(f)
+	for scanner.Scan() {
+		if strings.Contains(scanner.Text(), "RESULT") {
+			results = strings.FieldsFunc(scanner.Text(), Split)
+		}
+	}
+	if len(results) < 10 {
+		return "", ""
+	}
+	return results[1], results[9]
+}
+
+func getQueueIndex(path string) int {
+	f, err := os.Open(path)
+	if err != nil {
+		return 0
+	}
+	defer f.Close()
+	scanner := bufio.NewScanner(f)
+	for scanner.Scan() {
+		if strings.Contains(scanner.Text(), "WorkItem") {
+			results := strings.Split(scanner.Text(), "Queue")
+			index, _ := strconv.Atoi(results[1])
+			return index
+		}
+	}
+	return 1
+}
+
+var jobNameMap = map[string]bool{}
+var Queue_index []int
+
+func DestroyVhostBlkDisk(vmi *v1.VirtualMachineInstance) {
+
+	logger := log.DefaultLogger()
+	logger.Infof("Start to destroy the created vhost block devices...")
+	fileDir := "/var/tmp/"
+	fileName := fileDir + "vhost.message"
+	BridgePath := `"` + fileDir + `"`
+	WorkItemStatus := "Delete"
+	var (
+		file *os.File
+		err  error
+	)
+	// Scan the disk buffer to delete all spdk-vhsot user block device.
+	for _, vhostDisk := range Queue_index {
+		file, err = os.OpenFile(fileName, os.O_APPEND|os.O_WRONLY|os.O_CREATE, 0666)
+		if err != nil {
+			//return fmt.Errorf("OpenFile error")
+			logger.Error("OpenFile error")
+		}
+		defer file.Close()
+		entrypoint_content := "BridgePath=" + BridgePath + "\n" + "WorkItem=Queue" + strconv.Itoa(vhostDisk) + "\nWorkItemStatus=" + WorkItemStatus + "\n---\n"
+		if err = EditEntrypoint(fileName, entrypoint_content); err != nil {
+			logger.Error("edit file error while destroying")
+		} else {
+			time.Sleep(time.Duration(3) * time.Second)
+		}
+		//Clean up the disk.
+	}
+
+}
+
+func Convert_v1_SpdkVhostBlkDiskSource_To_api_Disk(volumeName string, diskSource *v1.SpdkVhostBlkDiskSource, disk *api.Disk) error {
+	if disk.Type == "lun" {
+		return fmt.Errorf(deviceTypeNotCompatibleFmt, disk.Alias.GetName())
+	}
+
+	//Communicate with spdk-vhost daemon to create a new vhost controller.
+
+	//1. create a unique name for spdk-vhost to create vhost controller.
+	//   ctrl_name = A-B-C, full_path = /var/tmp/vhost.${ctrl_name}
+	//   A = suffix of the virt-launcher POD NAME.
+	//	 B = index of the spdkvhostblk volumes.
+	//   C = backend block image ID/name. For ceph, it's the block image name
+	podNameSuffix := os.Getenv("POD_NAME")
+	diskIndex := spdkVhostBlkVolIndices[volumeName]
+	NAME := podNameSuffix + "-" + strconv.Itoa(diskIndex)
+
+	//vhostCtrlPath := "/var/tmp/vhost.1"
+	vhostCtrlPath := fmt.Sprintf("/var/tmp/vhost.%d", diskIndex)
+	//Get the request disk capacity with Unit M.
+
+	diskCapcity := diskSource.Capacity.ToDec().ScaledValue(6)
+
+	// intSize := diskSource.Capacity.ToDec().ScaledValue(0)
+	// diskCapcity = util.AlignImageSizeTo1MiB(intSize, logger.With("volume", volumeName))
+	// if intSize == 0 {
+	// 	return fmt.Errorf("the size for volume %s is too low", volumeName)
+	// }
+
+	//2. inform the spdk-vhost daemon to create a new vhost controller with shared folder
+	//   write the message to a file.
+	//2. inform the spdk-vhost daemon to create a new vhost controller with shared folder
+	//   write the message to a file.
+
+	fileDir := "/var/tmp/"
+	fileName := fileDir + "vhost.message"
+	BridgePath := `"` + fileDir + `"`
+	WorkItemStatus := "New"
+
+	V_INDEX := diskIndex
+	//TODO : name+=spdk_back_value
+
+	UNIT := "M"
+	WORKSTATUS := "NEW"
+	RESULT := "{}"
+	pre_content := ""
+	content := ""
+	var (
+		file        *os.File
+		err         error
+		QUEUE_INDEX int
+	)
+	UUID := string(getUuid())
+	//UUID, err := exec.Command("/usr/bin/uuidgen").Output()
+	_, hasJob := jobNameMap[NAME]
+	if err != nil {
+		return fmt.Errorf("uuid generate error")
+	}
+	if Exists(fileName) {
+		file, err = os.OpenFile(fileName, os.O_APPEND|os.O_WRONLY|os.O_CREATE, 0666)
+		if err != nil {
+			return fmt.Errorf("OpenFile error")
+		}
+		defer file.Close()
+		QUEUE_INDEX = getQueueIndex(fileName)
+		if !hasJob || !jobNameMap[NAME] {
+			QUEUE_INDEX = QUEUE_INDEX + 1
+			entrypoint_content := "BridgePath=" + BridgePath + "\n" + "WorkItem=Queue" + strconv.Itoa(QUEUE_INDEX) + "\nWorkItemStatus=" + WorkItemStatus + "\n---\n"
+			if err = EditEntrypoint(fileName, entrypoint_content); err != nil {
+				return err
+			}
+		}
+	} else {
+		file, err = os.Create(fileName)
+		if err != nil {
+			return fmt.Errorf("Create file error")
+		}
+		defer file.Close()
+		QUEUE_INDEX = 1
+		pre_content = "BridgePath=" + BridgePath + "\n" + "WorkItem=Queue" + strconv.Itoa(QUEUE_INDEX) + "\nWorkItemStatus=" + WorkItemStatus + "\n---\n"
+	}
+
+	content = pre_content + "Queue" + strconv.Itoa(QUEUE_INDEX) + ":\nQ_INDEX=" + strconv.Itoa(QUEUE_INDEX) + "\nV_INDEX=" + strconv.Itoa(V_INDEX) + "\nNAME=" + NAME + "\nUUID=" + UUID +
+		"\nUNIT=" + UNIT + "\nCAPACITY=" + strconv.FormatInt(diskCapcity, 10) + "\nWORKSTATUS=" + WORKSTATUS + "\nRESULT=" + RESULT + "\n---\n"
+
+	logger := log.DefaultLogger()
+	if hasJob && jobNameMap[NAME] {
+		// logger.Infof("Job has already been processed before.")
+		vhostCtrlPath = fmt.Sprintf("/var/tmp/vhost.%s", NAME)
+		disk.Type = "vhostuser"
+		disk.Device = "disk"
+		disk.Model = ""
+		disk.Snapshot = ""
+		//	disk.Alias.name = ""
+		//	disk.Alias = api.NewUserDefinedAlias("")
+		disk.Driver.Name = "qemu"
+		disk.Driver.Type = "raw"
+		disk.Driver.Discard = ""
+		disk.Source.Type = "unix"
+		disk.Source.Path = vhostCtrlPath
+		disk.Target.Bus = "virtio"
+		disk.Driver.ErrorPolicy = ""
+		disk.Driver.Cache = ""
+		return nil
+	} else {
+		if _, err = file.WriteString(content); err != nil {
+			return err
+		}
+		jobNameMap[NAME] = false
+	}
+
+	// logger.Infof("Notify the spdk-vhost to create vhost controller: suffix='%s', diskIndex='%d', capacity='%d'GiB .", podNameSuffix, diskIndex, diskCapcity)
+
+	//3. Waiting for new vhost controller created
+	// logger.Info("loop to wait spdk-vhost controller created.")
+	counter := 0
+	//total wait time is wait_times*Sleep_time
+	var wait_times = 5
+	var Sleep_time = 3
+
+	for {
+		time.Sleep(time.Duration(Sleep_time) * time.Second)
+		status, uuid := getMessage(fileName)
+		if status == "complete" {
+			if uuid != UUID {
+				logger.Error("UUID not matched")
+			} else {
+				Queue_index = append(Queue_index, QUEUE_INDEX)
+				vhostCtrlPath = fmt.Sprintf("/var/tmp/vhost.%s", NAME)
+			}
+			jobNameMap[NAME] = true
+			break
+		}
+		if counter >= wait_times {
+			logger.Error("no result message,waiting for too long...")
+			break
+		}
+		counter++
+	}
+	//TODO: do nothing and return directly, will levearage qemucmd args to create vhost user blk device
+	//for currrent kubevirt version, it failed to create the vhostuser block device via xml define.
+	//re-visit here later
+	//return nil
+
+	disk.Type = "vhostuser"
+	disk.Device = "disk"
+	disk.Model = ""
+	disk.Snapshot = ""
+	//	disk.Alias.name = ""
+	//	disk.Alias = api.NewUserDefinedAlias("")
+
+	disk.Driver.Name = "qemu"
+	disk.Driver.Type = "raw"
+	disk.Driver.Discard = ""
+	disk.Source.Type = "unix"
+	disk.Source.Path = vhostCtrlPath
+	disk.Target.Bus = "virtio"
+	disk.Driver.ErrorPolicy = ""
+	disk.Driver.Cache = ""
+
+	// Need to re-vist here for reconnect field setting. it's failed.
+	// disk.Source.Reconnect.Enabled = "yes"
+	// disk.Source.Reconnect.Timeout = 10
+	return nil
+
 }
 
 func Convert_v1_ContainerDiskSource_To_api_Disk(volumeName string, _ *v1.ContainerDiskSource, disk *api.Disk, c *ConverterContext, diskIndex int) error {
@@ -1363,6 +1648,7 @@ func Convert_v1_VirtualMachineInstance_To_api_Domain(vmi *v1.VirtualMachineInsta
 
 	var isMemfdRequired = false
 	if vmi.Spec.Domain.Memory != nil && vmi.Spec.Domain.Memory.Hugepages != nil {
+		log.Log.Object(vmi).Info("config memorybacking...")
 		domain.Spec.MemoryBacking = &api.MemoryBacking{
 			HugePages: &api.HugePages{},
 		}
@@ -1400,9 +1686,14 @@ func Convert_v1_VirtualMachineInstance_To_api_Domain(vmi *v1.VirtualMachineInsta
 
 	volumeIndices := map[string]int{}
 	volumes := map[string]*v1.Volume{}
+	j := 0
 	for i, volume := range vmi.Spec.Volumes {
 		volumes[volume.Name] = volume.DeepCopy()
 		volumeIndices[volume.Name] = i
+		if volume.SpdkVhostBlkDisk != nil {
+			spdkVhostBlkVolIndices[volume.Name] = j
+			j += 1
+		}
 	}
 
 	dedicatedThreads := 0
@@ -1497,8 +1788,43 @@ func Convert_v1_VirtualMachineInstance_To_api_Domain(vmi *v1.VirtualMachineInsta
 		} else {
 			err = Convert_v1_Hotplug_Volume_To_api_Disk(volume, &newDisk, c)
 		}
+
 		if err != nil {
 			return err
+		}
+
+		//TODO: for vhostuser blk
+		if volume.SpdkVhostBlkDisk != nil {
+			logger := log.DefaultLogger()
+
+			diskIndex := spdkVhostBlkVolIndices[disk.Name]
+			vhostUserBlkDevID := fmt.Sprintf("spdkvhostblk_%s", disk.Name)
+
+			//The spdk vhost socket should like spdkVhostPath := "/var/tmp/vhost.0"
+			spdkVhostPath := newDisk.Source.Path
+			if spdkVhostPath == "" {
+				// re-visit here.
+				// logger.Infof("Empty vhost controller path:'%s', try the default path", spdkVhostPath)
+				spdkVhostPath = fmt.Sprintf("/var/tmp/vhost.%d", diskIndex)
+			}
+			blkQueueNum := 2
+
+			if _, err := os.Stat(spdkVhostPath); os.IsNotExist(err) {
+				logger.Infof("SPDK vhost socket directory: '%s' not present, will not create vhost block device!!", spdkVhostPath)
+			} else if err == nil {
+
+				// logger.Infof("Mount SPDK vhost socket: '%s' .", spdkVhostPath)
+
+				if util.IsVhostuserVmiSpec(&vmi.Spec) {
+					initializeQEMUCmdAndQEMUArg(domain)
+
+					domain.Spec.QEMUCmd.QEMUArg = append(domain.Spec.QEMUCmd.QEMUArg,
+						api.Arg{Value: "-chardev"},
+						api.Arg{Value: fmt.Sprintf("socket,id=%s,path=%s", vhostUserBlkDevID, spdkVhostPath)},
+						api.Arg{Value: "-device"},
+						api.Arg{Value: fmt.Sprintf("vhost-user-blk-pci,chardev=%s,num-queues=%d", vhostUserBlkDevID, blkQueueNum)})
+				}
+			}
 		}
 
 		if err := Convert_v1_BlockSize_To_api_BlockIO(&disk, &newDisk); err != nil {
@@ -1531,7 +1857,9 @@ func Convert_v1_VirtualMachineInstance_To_api_Domain(vmi *v1.VirtualMachineInsta
 		hpStatus, hpOk := c.HotplugVolumes[disk.Name]
 		// if len(c.PermanentVolumes) == 0, it means the vmi is not ready yet, add all disks
 		if _, ok := c.PermanentVolumes[disk.Name]; ok || len(c.PermanentVolumes) == 0 || (hpOk && (hpStatus.Phase == v1.HotplugVolumeMounted || hpStatus.Phase == v1.VolumeReady)) {
-			domain.Spec.Devices.Disks = append(domain.Spec.Devices.Disks, newDisk)
+			if volume.SpdkVhostBlkDisk == nil {
+				domain.Spec.Devices.Disks = append(domain.Spec.Devices.Disks, newDisk)
+			}
 		}
 	}
 	// Handle virtioFS
@@ -1714,6 +2042,54 @@ func Convert_v1_VirtualMachineInstance_To_api_Domain(vmi *v1.VirtualMachineInsta
 				return err
 			}
 		}
+		if util.IsVhostuserVmiSpec(&vmi.Spec) {
+			// Shared memory required for vhostuser interfaces
+			//logger := log.DefaultLogger()
+
+			// Set file as memory backend for spdk vhost support
+			domain.Spec.MemoryBacking.Source = &api.MemoryBackingSource{Type: "file"}
+			// NUMA is required in order to use file
+			domain.Spec.CPU.NUMA = &api.NUMA{
+				Cells: []api.NUMACell{
+					{
+						ID:     "0",
+						CPUs:   fmt.Sprintf("0-%d", domain.Spec.VCPU.CPUs-1),
+						Memory: uint64(vcpu.GetVirtualMemory(vmi).Value() / int64(1024)),
+						Unit:   "KiB",
+					},
+				},
+			}
+
+			//logger.Info("Config the memory for vhost user interface.")
+			if vmi.Spec.Domain.Memory == nil || vmi.Spec.Domain.Memory.Hugepages == nil {
+				return fmt.Errorf("Hugepage is required for vhostuser interface to add NUMA cells %v", vmi.Spec.Domain.Memory)
+			}
+			if domain.Spec.Memory.Value == 0 {
+				return fmt.Errorf("Valid memory is required for vhostuser interface to add NUMA cells")
+			}
+
+			domain.Spec.CPU.NUMA = &api.NUMA{}
+			sockets := domain.Spec.CPU.Topology.Sockets
+			cellMemory := domain.Spec.Memory.Value / uint64(sockets)
+			nCPUsPerCell := uint32(vcpus) / sockets
+
+			// logger.Infof("Cpu NUMA: '%d'. CPU sockets: %d. memory: %d.", nCPUsPerCell, sockets, cellMemory)
+
+			var idx uint32
+			for idx = 0; idx < sockets; idx++ {
+				start := idx * nCPUsPerCell
+				end := start + nCPUsPerCell - 1
+				cellCPUs := strconv.Itoa(int(start)) + "-" + strconv.Itoa(int(end))
+				cell := api.NUMACell{
+					ID:           fmt.Sprintf("%d", idx),
+					CPUs:         cellCPUs,
+					Memory:       cellMemory,
+					Unit:         domain.Spec.Memory.Unit,
+					MemoryAccess: "shared",
+				}
+				domain.Spec.CPU.NUMA.Cells = append(domain.Spec.CPU.NUMA.Cells, cell)
+			}
+		}
 	}
 
 	domain.Spec.Devices.HostDevices = append(domain.Spec.Devices.HostDevices, c.GenericHostDevices...)
@@ -1830,6 +2206,77 @@ func Convert_v1_VirtualMachineInstance_To_api_Domain(vmi *v1.VirtualMachineInsta
 		if err := PlacePCIDevicesOnRootComplex(&domain.Spec); err != nil {
 			return err
 		}
+	}
+
+	//For spdk vhost support, re-visit
+	spdkVhostTag := "/var/tmp/vhost.tag" //If the tag is exist, then support the spdk vhost.
+	//	spdkVhostPath := "/var/tmp/vhost.0"
+	// spdkVhostPath1 := "/var/tmp/vhost.1"
+	// spdkVhostPath2 := "/var/tmp/vhost.2"
+	//	if _, err := os.Stat(spdkVhostTag); os.IsNotExist(err) {
+	if util.IsVhostuserVmiSpec(&vmi.Spec) {
+		/* 		if _, err := os.Stat(spdkVhostPath); os.IsNotExist(err) {
+			logger := log.DefaultLogger()
+			logger.Infof("SPDK vhost socket directory: '%s' not present.", spdkVhostPath)
+
+		} else if err == nil {
+			logger := log.DefaultLogger()
+			logger.Infof("SPDK vhost socket directory: '%s' is present.", spdkVhostPath)
+			initializeQEMUCmdAndQEMUArg(domain)
+			// -object memory-backend-file share=on
+			// -chardev socket,id=spdk_vhost_scsi0,path=/var/tmp/vhost.0 \
+			// -device vhost-user-scsi-pci,id=scsi0,chardev=spdk_vhost_scsi0,num_queues=2 \
+			// -chardev socket,id=spdk_vhost_blk0,path=/var/tmp/vhost.1 \
+			// -device vhost-user-blk-pci,chardev=spdk_vhost_blk0,num-queues=2
+			// -numa node,memdev=mem0
+			domain.Spec.QEMUCmd.QEMUArg = append(domain.Spec.QEMUCmd.QEMUArg,
+				// api.Arg{Value: "-object"},
+				// api.Arg{Value: "memory-backend-file,id=mem0,size=4G,mem-path=/dev/hugepages,share=on"},
+				// api.Arg{Value: "-numa"},
+				// api.Arg{Value: "node,memdev=mem0"},
+				api.Arg{Value: "-chardev"},
+				api.Arg{Value: fmt.Sprintf("socket,id=spdk_vhost_blk0,path=%s", spdkVhostPath)},
+				api.Arg{Value: "-device"},
+				api.Arg{Value: "vhost-user-blk-pci,chardev=spdk_vhost_blk0,num-queues=2"})
+		}
+		*/ /*
+			// for vshot.1
+			if _, err := os.Stat(spdkVhostPath1); os.IsNotExist(err) {
+				logger := log.DefaultLogger()
+				logger.Infof("SPDK vhost socket directory: '%s' not present.", spdkVhostPath1)
+
+			} else if err == nil {
+				logger := log.DefaultLogger()
+				logger.Infof("SPDK vhost socket directory: '%s' is present.", spdkVhostPath1)
+				initializeQEMUCmdAndQEMUArg(domain)
+
+				domain.Spec.QEMUCmd.QEMUArg = append(domain.Spec.QEMUCmd.QEMUArg,
+					api.Arg{Value: "-chardev"},
+					api.Arg{Value: fmt.Sprintf("socket,id=spdk_vhost_blk1,path=%s", spdkVhostPath1)},
+					api.Arg{Value: "-device"},
+					api.Arg{Value: "vhost-user-blk-pci,chardev=spdk_vhost_blk1,num-queues=2"})
+			}
+
+			// for vhost.2
+			if _, err := os.Stat(spdkVhostPath2); os.IsNotExist(err) {
+				logger := log.DefaultLogger()
+				logger.Infof("SPDK vhost socket directory: '%s' not present.", spdkVhostPath2)
+
+			} else if err == nil {
+				logger := log.DefaultLogger()
+				logger.Infof("SPDK vhost socket directory: '%s' is present.", spdkVhostPath2)
+				initializeQEMUCmdAndQEMUArg(domain)
+
+				domain.Spec.QEMUCmd.QEMUArg = append(domain.Spec.QEMUCmd.QEMUArg,
+					api.Arg{Value: "-chardev"},
+					api.Arg{Value: fmt.Sprintf("socket,id=spdk_vhost_blk2,path=%s", spdkVhostPath2)},
+					api.Arg{Value: "-device"},
+					api.Arg{Value: "vhost-user-blk-pci,chardev=spdk_vhost_blk2,num-queues=2"})
+			}
+		*/
+	} else {
+		logger := log.DefaultLogger()
+		logger.Infof("Will not create vhost-user-blk device, please create the tag[%s]to support SPDK vhost in kubevirt.", spdkVhostTag)
 	}
 
 	if virtLauncherLogVerbosity, err := strconv.Atoi(os.Getenv(services.ENV_VAR_VIRT_LAUNCHER_LOG_VERBOSITY)); err == nil && (virtLauncherLogVerbosity > services.EXT_LOG_VERBOSITY_THRESHOLD) {

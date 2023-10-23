@@ -61,6 +61,7 @@ import (
 	"kubevirt.io/kubevirt/pkg/virt-launcher/virtwrap/api"
 	virtcli "kubevirt.io/kubevirt/pkg/virt-launcher/virtwrap/cli"
 	cmdserver "kubevirt.io/kubevirt/pkg/virt-launcher/virtwrap/cmd-server"
+	virtlauncherconverter "kubevirt.io/kubevirt/pkg/virt-launcher/virtwrap/converter"
 	"kubevirt.io/kubevirt/pkg/virt-launcher/virtwrap/util"
 )
 
@@ -520,6 +521,13 @@ func main() {
 
 	close(stopChan)
 	<-cmdServerDone
+
+	//TODO: Need to notify to destruct the spdk-vhost-blk controller in spdk-vhost daemon.
+	log.Log.Info("Notify the controller to release spdk-vhost-blk.")
+
+	virtlauncherconverter.DestroyVhostBlkDisk(vmi)
+
+	time.Sleep(10 * time.Second)
 
 	log.Log.Info("Exiting...")
 }
