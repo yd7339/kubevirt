@@ -1683,40 +1683,6 @@ func Convert_v1_VirtualMachineInstance_To_api_Domain(vmi *v1.VirtualMachineInsta
 			return err
 		}
 
-		if volume.EmptyDisk != nil {
-			diskIndex := volumeIndices[disk.Name]
-			spdkVhostTag := "/var/tmp/vhost.tag" //If the tag is exist, then support the spdk vhost.
-			//			spdkVhostPath := "/var/tmp/vhost.0"
-			spdkVhostPath := fmt.Sprintf("/var/tmp/vhost.%d", diskIndex)
-			if util.IsVhostuserVmiSpec(&vmi.Spec) {
-				if _, err := os.Stat(spdkVhostPath); os.IsNotExist(err) {
-					logger := log.DefaultLogger()
-					logger.Infof("SPDK vhost socket directory: '%s' not present.", spdkVhostPath)
-
-				} else if err == nil {
-					logger := log.DefaultLogger()
-					logger.Infof("SPDK vhost socket directory: '%s' is present.", spdkVhostPath)
-					initializeQEMUCmdAndQEMUArg(domain)
-
-					domain.Spec.QEMUCmd.QEMUArg = append(domain.Spec.QEMUCmd.QEMUArg,
-						api.Arg{Value: "-chardev"},
-						api.Arg{Value: fmt.Sprintf("socket,id=spdk_vhost_blk%d,path=%s", diskIndex, spdkVhostPath)},
-						//api.Arg{Value: fmt.Sprintf("socket,id=spdk_vhost_blk%d,path=/var/tmp/vhost.%d", diskIndex, diskIndex)},
-						api.Arg{Value: "-device"},
-						api.Arg{Value: fmt.Sprintf("vhost-user-blk-pci,chardev=spdk_vhost_blk%d,num-queues=2", diskIndex)})
-					//api.Arg{Value: "vhost-user-blk-pci,chardev=spdk_vhost_blk0,num-queues=2"})
-				}
-			} else {
-				logger := log.DefaultLogger()
-				logger.Infof("Will not create vhost-user-blk device, please create the tag[%s]to support SPDK vhost in kubevirt.", spdkVhostTag)
-			}
-		}
-			
-
-		if err != nil {
-			return err
-		}
-
 		//TODO: for vhostuser blk
 		if volume.SpdkVhostBlkDisk != nil {
 			logger := log.DefaultLogger()
@@ -1964,6 +1930,54 @@ func Convert_v1_VirtualMachineInstance_To_api_Domain(vmi *v1.VirtualMachineInsta
 			err = vcpu.AdjustDomainForTopologyAndCPUSet(domain, vmi, c.Topology, c.CPUSet, useIOThreads)
 			if err != nil {
 				return err
+			}
+		}
+		if util.IsVhostuserVmiSpec(&vmi.Spec) {
+			// Shared memory required for vhostuser interfaces
+			//logger := log.DefaultLogger()
+
+			// Set file as memory backend for spdk vhost support
+			domain.Spec.MemoryBacking.Source = &api.MemoryBackingSource{Type: "file"}
+			// NUMA is required in order to use file
+			domain.Spec.CPU.NUMA = &api.NUMA{
+				Cells: []api.NUMACell{
+					{
+						ID:     "0",
+						CPUs:   fmt.Sprintf("0-%d", domain.Spec.VCPU.CPUs-1),
+						Memory: uint64(vcpu.GetVirtualMemory(vmi).Value() / int64(1024)),
+						Unit:   "KiB",
+					},
+				},
+			}
+
+			//logger.Info("Config the memory for vhost user interface.")
+			if vmi.Spec.Domain.Memory == nil || vmi.Spec.Domain.Memory.Hugepages == nil {
+				return fmt.Errorf("Hugepage is required for vhostuser interface to add NUMA cells %v", vmi.Spec.Domain.Memory)
+			}
+			if domain.Spec.Memory.Value == 0 {
+				return fmt.Errorf("Valid memory is required for vhostuser interface to add NUMA cells")
+			}
+
+			domain.Spec.CPU.NUMA = &api.NUMA{}
+			sockets := domain.Spec.CPU.Topology.Sockets
+			cellMemory := domain.Spec.Memory.Value / uint64(sockets)
+			nCPUsPerCell := uint32(vcpus) / sockets
+
+			// logger.Infof("Cpu NUMA: '%d'. CPU sockets: %d. memory: %d.", nCPUsPerCell, sockets, cellMemory)
+
+			var idx uint32
+			for idx = 0; idx < sockets; idx++ {
+				start := idx * nCPUsPerCell
+				end := start + nCPUsPerCell - 1
+				cellCPUs := strconv.Itoa(int(start)) + "-" + strconv.Itoa(int(end))
+				cell := api.NUMACell{
+					ID:           fmt.Sprintf("%d", idx),
+					CPUs:         cellCPUs,
+					Memory:       cellMemory,
+					Unit:         domain.Spec.Memory.Unit,
+					MemoryAccess: "shared",
+				}
+				domain.Spec.CPU.NUMA.Cells = append(domain.Spec.CPU.NUMA.Cells, cell)
 			}
 		}
 	}
