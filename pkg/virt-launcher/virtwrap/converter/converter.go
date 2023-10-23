@@ -37,6 +37,7 @@ import (
 
 	"golang.org/x/sys/unix"
 
+	"kubevirt.io/kubevirt/pkg/emptydisk"
 	"kubevirt.io/kubevirt/pkg/virt-launcher/virtwrap/converter/vcpu"
 
 	"kubevirt.io/kubevirt/pkg/virt-controller/services"
@@ -54,7 +55,6 @@ import (
 	"kubevirt.io/kubevirt/pkg/config"
 
 	containerdisk "kubevirt.io/kubevirt/pkg/container-disk"
-	"kubevirt.io/kubevirt/pkg/emptydisk"
 	ephemeraldisk "kubevirt.io/kubevirt/pkg/ephemeral-disk"
 	cmdv1 "kubevirt.io/kubevirt/pkg/handler-launcher-com/cmd/v1"
 	hostdisk "kubevirt.io/kubevirt/pkg/host-disk"
@@ -403,6 +403,10 @@ func SetDriverCacheMode(disk *api.Disk, directIOChecker DirectIOChecker) error {
 	supportDirectIO := true
 	mode := v1.DriverCache(disk.Driver.Cache)
 	isBlockDev := false
+
+	if disk.Type == "vhostuser" {
+		return nil
+	}
 
 	if disk.Source.File != "" {
 		path = disk.Source.File
@@ -831,6 +835,30 @@ func Convert_v1_EmptyDiskSource_To_api_Disk(volumeName string, _ *v1.EmptyDiskSo
 	disk.Source.File = emptydisk.NewEmptyDiskCreator().FilePathForVolumeName(volumeName)
 	disk.Driver.ErrorPolicy = "stop"
 
+	return nil
+}
+
+func Convert_v1_SpdkVhostBlkDiskSource_To_api_Disk(volumeName string, _ *v1.EmptyDiskSource, disk *api.Disk) error {
+	if disk.Type == "lun" {
+		return fmt.Errorf(deviceTypeNotCompatibleFmt, disk.Alias.GetName())
+	}
+	
+	disk.Type = "vhostuser"
+	disk.Device = "disk"
+	disk.Model = ""
+	disk.Snapshot = ""
+	//	disk.Alias.name = ""
+	disk.Alias = api.NewUserDefinedAlias("")
+	
+	disk.Driver.Name = "qemu"
+	disk.Driver.Type = "raw"
+	disk.Driver.Discard = ""
+	disk.Source.Type = "unix"
+	disk.Source.Path = "/var/tmp/vhost.1"
+	disk.Target.Bus = "virtio"
+	disk.Driver.ErrorPolicy = ""
+	disk.Driver.Cache = ""
+	
 	return nil
 }
 
@@ -1497,6 +1525,37 @@ func Convert_v1_VirtualMachineInstance_To_api_Domain(vmi *v1.VirtualMachineInsta
 		} else {
 			err = Convert_v1_Hotplug_Volume_To_api_Disk(volume, &newDisk, c)
 		}
+
+		if volume.EmptyDisk != nil {
+			diskIndex := volumeIndices[disk.Name]
+			spdkVhostTag := "/var/tmp/vhost.tag" //If the tag is exist, then support the spdk vhost.
+			//			spdkVhostPath := "/var/tmp/vhost.0"
+			spdkVhostPath := fmt.Sprintf("/var/tmp/vhost.%d", diskIndex)
+			if util.IsVhostuserVmiSpec(&vmi.Spec) {
+				if _, err := os.Stat(spdkVhostPath); os.IsNotExist(err) {
+					logger := log.DefaultLogger()
+					logger.Infof("SPDK vhost socket directory: '%s' not present.", spdkVhostPath)
+
+				} else if err == nil {
+					logger := log.DefaultLogger()
+					logger.Infof("SPDK vhost socket directory: '%s' is present.", spdkVhostPath)
+					initializeQEMUCmdAndQEMUArg(domain)
+
+					domain.Spec.QEMUCmd.QEMUArg = append(domain.Spec.QEMUCmd.QEMUArg,
+						api.Arg{Value: "-chardev"},
+						api.Arg{Value: fmt.Sprintf("socket,id=spdk_vhost_blk%d,path=%s", diskIndex, spdkVhostPath)},
+						//api.Arg{Value: fmt.Sprintf("socket,id=spdk_vhost_blk%d,path=/var/tmp/vhost.%d", diskIndex, diskIndex)},
+						api.Arg{Value: "-device"},
+						api.Arg{Value: fmt.Sprintf("vhost-user-blk-pci,chardev=spdk_vhost_blk%d,num-queues=2", diskIndex)})
+					//api.Arg{Value: "vhost-user-blk-pci,chardev=spdk_vhost_blk0,num-queues=2"})
+				}
+			} else {
+				logger := log.DefaultLogger()
+				logger.Infof("Will not create vhost-user-blk device, please create the tag[%s]to support SPDK vhost in kubevirt.", spdkVhostTag)
+			}
+		}
+			
+
 		if err != nil {
 			return err
 		}

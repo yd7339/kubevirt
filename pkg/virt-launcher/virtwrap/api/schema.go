@@ -604,6 +604,8 @@ type ReadOnly struct{}
 
 type DiskSource struct {
 	Dev           string          `xml:"dev,attr,omitempty"`
+	Type          string          `xml:"type,attr,omitempty"`
+	Path          string          `xml:"path,attr,omitempty"`
 	File          string          `xml:"file,attr,omitempty"`
 	StartupPolicy string          `xml:"startupPolicy,attr,omitempty"`
 	Protocol      string          `xml:"protocol,attr,omitempty"`
