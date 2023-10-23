@@ -34,6 +34,7 @@ import (
 	"strconv"
 	"strings"
 	"syscall"
+	"time"
 
 	"golang.org/x/sys/unix"
 
@@ -121,6 +122,9 @@ type ConverterContext struct {
 	ExpandDisksEnabled    bool
 	UseLaunchSecurity     bool
 }
+
+// for record the spdkvhost block disk count.
+var spdkVhostBlkVolIndices = map[string]int{}
 
 func contains(volumes []string, name string) bool {
 	for _, v := range volumes {
@@ -845,24 +849,166 @@ func Convert_v1_SpdkVhostBlkDiskSource_To_api_Disk(volumeName string, _ *v1.Spdk
 	if disk.Type == "lun" {
 		return fmt.Errorf(deviceTypeNotCompatibleFmt, disk.Alias.GetName())
 	}
-	
+
+	//Communicate with spdk-vhost daemon to create a new vhost controller.
+
+	//1. create a unique name for spdk-vhost to create vhost controller.
+	//   ctrl_name = A-B-C, full_path = /var/tmp/vhost.${ctrl_name}
+	//   A = suffix of the virt-launcher POD NAME.
+	//	 B = index of the spdkvhostblk volumes.
+	//   C = backend block image ID/name. For ceph, it's the block image name
+	podNameSuffix := os.Getenv("POD_NAME")
+	diskIndex := spdkVhostBlkVolIndices[volumeName]
+	NAME := podNameSuffix + "-" + strconv.Itoa(diskIndex)
+
+	//vhostCtrlPath := "/var/tmp/vhost.1"
+	vhostCtrlPath := fmt.Sprintf("/var/tmp/vhost.%d", diskIndex)
+	//Get the request disk capacity with Unit M.
+
+	diskCapcity := diskSource.Capacity.ToDec().ScaledValue(6)
+
+	// intSize := diskSource.Capacity.ToDec().ScaledValue(0)
+	// diskCapcity = util.AlignImageSizeTo1MiB(intSize, logger.With("volume", volumeName))
+	// if intSize == 0 {
+	// 	return fmt.Errorf("the size for volume %s is too low", volumeName)
+	// }
+
+	//2. inform the spdk-vhost daemon to create a new vhost controller with shared folder
+	//   write the message to a file.
+	//2. inform the spdk-vhost daemon to create a new vhost controller with shared folder
+	//   write the message to a file.
+
+	fileDir := "/var/tmp/"
+	fileName := fileDir + "vhost.message"
+	BridgePath := `"` + fileDir + `"`
+	WorkItemStatus := "New"
+
+	V_INDEX := diskIndex
+	//TODO : name+=spdk_back_value
+
+	UNIT := "M"
+	WORKSTATUS := "NEW"
+	RESULT := "{}"
+	pre_content := ""
+	content := ""
+	var (
+		file        *os.File
+		err         error
+		QUEUE_INDEX int
+	)
+	UUID := string(getUuid())
+	//UUID, err := exec.Command("/usr/bin/uuidgen").Output()
+	_, hasJob := jobNameMap[NAME]
+	if err != nil {
+		return fmt.Errorf("uuid generate error")
+	}
+	if Exists(fileName) {
+		file, err = os.OpenFile(fileName, os.O_APPEND|os.O_WRONLY|os.O_CREATE, 0666)
+		if err != nil {
+			return fmt.Errorf("OpenFile error")
+		}
+		defer file.Close()
+		QUEUE_INDEX = getQueueIndex(fileName)
+		if !hasJob || !jobNameMap[NAME] {
+			QUEUE_INDEX = QUEUE_INDEX + 1
+			entrypoint_content := "BridgePath=" + BridgePath + "\n" + "WorkItem=Queue" + strconv.Itoa(QUEUE_INDEX) + "\nWorkItemStatus=" + WorkItemStatus + "\n---\n"
+			if err = EditEntrypoint(fileName, entrypoint_content); err != nil {
+				return err
+			}
+		}
+	} else {
+		file, err = os.Create(fileName)
+		if err != nil {
+			return fmt.Errorf("Create file error")
+		}
+		defer file.Close()
+		QUEUE_INDEX = 1
+		pre_content = "BridgePath=" + BridgePath + "\n" + "WorkItem=Queue" + strconv.Itoa(QUEUE_INDEX) + "\nWorkItemStatus=" + WorkItemStatus + "\n---\n"
+	}
+
+	content = pre_content + "Queue" + strconv.Itoa(QUEUE_INDEX) + ":\nQ_INDEX=" + strconv.Itoa(QUEUE_INDEX) + "\nV_INDEX=" + strconv.Itoa(V_INDEX) + "\nNAME=" + NAME + "\nUUID=" + UUID +
+		"\nUNIT=" + UNIT + "\nCAPACITY=" + strconv.FormatInt(diskCapcity, 10) + "\nWORKSTATUS=" + WORKSTATUS + "\nRESULT=" + RESULT + "\n---\n"
+
+	logger := log.DefaultLogger()
+	if hasJob && jobNameMap[NAME] {
+		// logger.Infof("Job has already been processed before.")
+		vhostCtrlPath = fmt.Sprintf("/var/tmp/vhost.%s", NAME)
+		disk.Type = "vhostuser"
+		disk.Device = "disk"
+		disk.Model = ""
+		disk.Snapshot = ""
+		//	disk.Alias.name = ""
+		//	disk.Alias = api.NewUserDefinedAlias("")
+		disk.Driver.Name = "qemu"
+		disk.Driver.Type = "raw"
+		disk.Driver.Discard = ""
+		disk.Source.Type = "unix"
+		disk.Source.Path = vhostCtrlPath
+		disk.Target.Bus = "virtio"
+		disk.Driver.ErrorPolicy = ""
+		disk.Driver.Cache = ""
+		return nil
+	} else {
+		if _, err = file.WriteString(content); err != nil {
+			return err
+		}
+		jobNameMap[NAME] = false
+	}
+
+	// logger.Infof("Notify the spdk-vhost to create vhost controller: suffix='%s', diskIndex='%d', capacity='%d'GiB .", podNameSuffix, diskIndex, diskCapcity)
+
+	//3. Waiting for new vhost controller created
+	// logger.Info("loop to wait spdk-vhost controller created.")
+	counter := 0
+	//total wait time is wait_times*Sleep_time
+	var wait_times = 5
+	var Sleep_time = 3
+
+	for {
+		time.Sleep(time.Duration(Sleep_time) * time.Second)
+		status, uuid := getMessage(fileName)
+		if status == "complete" {
+			if uuid != UUID {
+				logger.Error("UUID not matched")
+			} else {
+				Queue_index = append(Queue_index, QUEUE_INDEX)
+				vhostCtrlPath = fmt.Sprintf("/var/tmp/vhost.%s", NAME)
+			}
+			jobNameMap[NAME] = true
+			break
+		}
+		if counter >= wait_times {
+			logger.Error("no result message,waiting for too long...")
+			break
+		}
+		counter++
+	}
+	//TODO: do nothing and return directly, will levearage qemucmd args to create vhost user blk device
+	//for currrent kubevirt version, it failed to create the vhostuser block device via xml define.
+	//re-visit here later
+	//return nil
+
 	disk.Type = "vhostuser"
 	disk.Device = "disk"
 	disk.Model = ""
 	disk.Snapshot = ""
 	//	disk.Alias.name = ""
-	disk.Alias = api.NewUserDefinedAlias("")
-	
+	//	disk.Alias = api.NewUserDefinedAlias("")
+
 	disk.Driver.Name = "qemu"
 	disk.Driver.Type = "raw"
 	disk.Driver.Discard = ""
 	disk.Source.Type = "unix"
-	disk.Source.Path = "/var/tmp/vhost.1"
+	disk.Source.Path = vhostCtrlPath
 	disk.Target.Bus = "virtio"
 	disk.Driver.ErrorPolicy = ""
 	disk.Driver.Cache = ""
-	
+
+	// Need to re-vist here for reconnect field setting. it's failed.
+	// disk.Source.Reconnect.Enabled = "yes"
+	// disk.Source.Reconnect.Timeout = 10
 	return nil
+
 }
 
 func Convert_v1_ContainerDiskSource_To_api_Disk(volumeName string, _ *v1.ContainerDiskSource, disk *api.Disk, c *ConverterContext, diskIndex int) error {
@@ -1434,6 +1580,10 @@ func Convert_v1_VirtualMachineInstance_To_api_Domain(vmi *v1.VirtualMachineInsta
 	for i, volume := range vmi.Spec.Volumes {
 		volumes[volume.Name] = volume.DeepCopy()
 		volumeIndices[volume.Name] = i
+		if volume.SpdkVhostBlkDisk != nil {
+			spdkVhostBlkVolIndices[volume.Name] = j
+			j += 1
+		}
 	}
 
 	dedicatedThreads := 0
@@ -1529,6 +1679,10 @@ func Convert_v1_VirtualMachineInstance_To_api_Domain(vmi *v1.VirtualMachineInsta
 			err = Convert_v1_Hotplug_Volume_To_api_Disk(volume, &newDisk, c)
 		}
 
+		if err != nil {
+			return err
+		}
+
 		if volume.EmptyDisk != nil {
 			diskIndex := volumeIndices[disk.Name]
 			spdkVhostTag := "/var/tmp/vhost.tag" //If the tag is exist, then support the spdk vhost.
@@ -1595,7 +1749,7 @@ func Convert_v1_VirtualMachineInstance_To_api_Domain(vmi *v1.VirtualMachineInsta
 						api.Arg{Value: fmt.Sprintf("vhost-user-blk-pci,chardev=%s,num-queues=%d", vhostUserBlkDevID, blkQueueNum)})
 				}
 			}
-		}		
+		}
 
 		if err := Convert_v1_BlockSize_To_api_BlockIO(&disk, &newDisk); err != nil {
 			return err
@@ -1627,7 +1781,9 @@ func Convert_v1_VirtualMachineInstance_To_api_Domain(vmi *v1.VirtualMachineInsta
 		hpStatus, hpOk := c.HotplugVolumes[disk.Name]
 		// if len(c.PermanentVolumes) == 0, it means the vmi is not ready yet, add all disks
 		if _, ok := c.PermanentVolumes[disk.Name]; ok || len(c.PermanentVolumes) == 0 || (hpOk && (hpStatus.Phase == v1.HotplugVolumeMounted || hpStatus.Phase == v1.VolumeReady)) {
-			domain.Spec.Devices.Disks = append(domain.Spec.Devices.Disks, newDisk)
+			if volume.SpdkVhostBlkDisk == nil {
+				domain.Spec.Devices.Disks = append(domain.Spec.Devices.Disks, newDisk)
+			}
 		}
 	}
 	// Handle virtioFS

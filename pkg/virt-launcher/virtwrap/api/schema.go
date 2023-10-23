@@ -603,14 +603,15 @@ type DiskSecret struct {
 type ReadOnly struct{}
 
 type DiskSource struct {
-	Dev           string          `xml:"dev,attr,omitempty"`
-	Type          string          `xml:"type,attr,omitempty"`
-	Path          string          `xml:"path,attr,omitempty"`
-	File          string          `xml:"file,attr,omitempty"`
-	StartupPolicy string          `xml:"startupPolicy,attr,omitempty"`
-	Protocol      string          `xml:"protocol,attr,omitempty"`
-	Name          string          `xml:"name,attr,omitempty"`
-	Host          *DiskSourceHost `xml:"host,omitempty"`
+	Dev           string               `xml:"dev,attr,omitempty"`
+	Type          string               `xml:"type,attr,omitempty"`
+	Path          string               `xml:"path,attr,omitempty"`
+	File          string               `xml:"file,attr,omitempty"`
+	StartupPolicy string               `xml:"startupPolicy,attr,omitempty"`
+	Protocol      string               `xml:"protocol,attr,omitempty"`
+	Name          string               `xml:"name,attr,omitempty"`
+	Host          *DiskSourceHost      `xml:"host,omitempty"`
+	Reconnect     *DiskSourceReconnect `xml:"reconnect,omitempty"`
 }
 
 type DiskTarget struct {
@@ -634,6 +635,11 @@ type DiskDriver struct {
 type DiskSourceHost struct {
 	Name string `xml:"name,attr"`
 	Port string `xml:"port,attr,omitempty"`
+}
+
+type DiskSourceReconnect struct {
+	Enabled string `xml:"enabled,attr"`
+	Timeout uint64 `xml:"timeout,attr,omitempty"`
 }
 
 type BackingStore struct {
