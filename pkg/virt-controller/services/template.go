@@ -421,19 +421,19 @@ func addSpdkVhostuserVolumes(volumeMounts *[]k8sv1.VolumeMount, volumes *[]k8sv1
 		},
 	})
 
-	// Libvirt uses ovs-vsctl commands to get interface stats
-	*volumeMounts = append(*volumeMounts, k8sv1.VolumeMount{
-		Name:      "shared-hugepage",
-		MountPath: SharedHugepageDir,
-	})
-	*volumes = append(*volumes, k8sv1.Volume{
-		Name: "shared-hugepage",
-		VolumeSource: k8sv1.VolumeSource{
-			HostPath: &k8sv1.HostPathVolumeSource{
-				Path: SharedHugepageDir,
-			},
-		},
-	})
+	// // Libvirt uses ovs-vsctl commands to get interface stats
+	// *volumeMounts = append(*volumeMounts, k8sv1.VolumeMount{
+	// 	Name:      "shared-hugepage",
+	// 	MountPath: SharedHugepageDir,
+	// })
+	// *volumes = append(*volumes, k8sv1.Volume{
+	// 	Name: "shared-hugepage",
+	// 	VolumeSource: k8sv1.VolumeSource{
+	// 		HostPath: &k8sv1.HostPathVolumeSource{
+	// 			Path: SharedHugepageDir,
+	// 		},
+	// 	},
+	// })
 }
 
 func (t *templateService) RenderMigrationManifest(vmi *v1.VirtualMachineInstance, pod *k8sv1.Pod) (*k8sv1.Pod, error) {
@@ -500,7 +500,7 @@ func (t *templateService) renderLaunchManifest(vmi *v1.VirtualMachineInstance, i
 	var imagePullSecrets []k8sv1.LocalObjectReference
 
 	var userId int64 = util.RootUser
-	var privileged bool = false
+	var privileged bool = true //false
 
 	nonRoot := util.IsNonRootVMI(vmi)
 	if nonRoot {
