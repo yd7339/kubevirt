@@ -26077,7 +26077,7 @@ func schema_client_go_apis_core_v1_Volume(ref common.ReferenceCallback) common.O
 							Description: "SpdkVhostBlkDisk represents a temporary disk which shares the vmis lifecycle. More info: https://kubevirt.gitbooks.io/user-guide/disks-and-volumes.html",
 							Ref:         ref("kubevirt.io/client-go/apis/core/v1.SpdkVhostBlkDiskSource"),
 						},
-					},					
+					},
 					"configMap": {
 						SchemaProps: spec.SchemaProps{
 							Description: "ConfigMapSource represents a reference to a ConfigMap in the same namespace. More info: https://kubernetes.io/docs/tasks/configure-pod-container/configure-pod-configmap/",

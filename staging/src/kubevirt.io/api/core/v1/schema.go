@@ -723,7 +723,7 @@ type VolumeSource struct {
 	// SpdkVhostBlkDisk represents a temporary disk which shares the vmis lifecycle.
 	// More info: https://kubevirt.gitbooks.io/user-guide/disks-and-volumes.html
 	// +optional
-	SpdkVhostBlkDisk *SpdkVhostBlkDiskSource `json:"spdkVhostBlkDisk,omitempty"`	
+	SpdkVhostBlkDisk *SpdkVhostBlkDiskSource `json:"spdkVhostBlkDisk,omitempty"`
 }
 
 // HotplugVolumeSource Represents the source of a volume to mount which are capable

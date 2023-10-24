@@ -2216,29 +2216,29 @@ func Convert_v1_VirtualMachineInstance_To_api_Domain(vmi *v1.VirtualMachineInsta
 	//	if _, err := os.Stat(spdkVhostTag); os.IsNotExist(err) {
 	if util.IsVhostuserVmiSpec(&vmi.Spec) {
 		/* 		if _, err := os.Stat(spdkVhostPath); os.IsNotExist(err) {
-					logger := log.DefaultLogger()
-					logger.Infof("SPDK vhost socket directory: '%s' not present.", spdkVhostPath)
+			logger := log.DefaultLogger()
+			logger.Infof("SPDK vhost socket directory: '%s' not present.", spdkVhostPath)
 
-				} else if err == nil {
-					logger := log.DefaultLogger()
-					logger.Infof("SPDK vhost socket directory: '%s' is present.", spdkVhostPath)
-					initializeQEMUCmdAndQEMUArg(domain)
-					// -object memory-backend-file share=on
-					// -chardev socket,id=spdk_vhost_scsi0,path=/var/tmp/vhost.0 \
-					// -device vhost-user-scsi-pci,id=scsi0,chardev=spdk_vhost_scsi0,num_queues=2 \
-					// -chardev socket,id=spdk_vhost_blk0,path=/var/tmp/vhost.1 \
-					// -device vhost-user-blk-pci,chardev=spdk_vhost_blk0,num-queues=2
-					// -numa node,memdev=mem0
-					domain.Spec.QEMUCmd.QEMUArg = append(domain.Spec.QEMUCmd.QEMUArg,
-						// api.Arg{Value: "-object"},
-						// api.Arg{Value: "memory-backend-file,id=mem0,size=4G,mem-path=/dev/hugepages,share=on"},
-						// api.Arg{Value: "-numa"},
-						// api.Arg{Value: "node,memdev=mem0"},
-						api.Arg{Value: "-chardev"},
-						api.Arg{Value: fmt.Sprintf("socket,id=spdk_vhost_blk0,path=%s", spdkVhostPath)},
-						api.Arg{Value: "-device"},
-						api.Arg{Value: "vhost-user-blk-pci,chardev=spdk_vhost_blk0,num-queues=2"})
-				}
+		} else if err == nil {
+			logger := log.DefaultLogger()
+			logger.Infof("SPDK vhost socket directory: '%s' is present.", spdkVhostPath)
+			initializeQEMUCmdAndQEMUArg(domain)
+			// -object memory-backend-file share=on
+			// -chardev socket,id=spdk_vhost_scsi0,path=/var/tmp/vhost.0 \
+			// -device vhost-user-scsi-pci,id=scsi0,chardev=spdk_vhost_scsi0,num_queues=2 \
+			// -chardev socket,id=spdk_vhost_blk0,path=/var/tmp/vhost.1 \
+			// -device vhost-user-blk-pci,chardev=spdk_vhost_blk0,num-queues=2
+			// -numa node,memdev=mem0
+			domain.Spec.QEMUCmd.QEMUArg = append(domain.Spec.QEMUCmd.QEMUArg,
+				// api.Arg{Value: "-object"},
+				// api.Arg{Value: "memory-backend-file,id=mem0,size=4G,mem-path=/dev/hugepages,share=on"},
+				// api.Arg{Value: "-numa"},
+				// api.Arg{Value: "node,memdev=mem0"},
+				api.Arg{Value: "-chardev"},
+				api.Arg{Value: fmt.Sprintf("socket,id=spdk_vhost_blk0,path=%s", spdkVhostPath)},
+				api.Arg{Value: "-device"},
+				api.Arg{Value: "vhost-user-blk-pci,chardev=spdk_vhost_blk0,num-queues=2"})
+		}
 		*/ /*
 			// for vshot.1
 			if _, err := os.Stat(spdkVhostPath1); os.IsNotExist(err) {
